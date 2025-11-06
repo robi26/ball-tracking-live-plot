@@ -5,7 +5,7 @@
 [![ci](https://github.com/trflorian/ball-tracking-live-plot/actions/workflows/ci.yaml/badge.svg)](https://github.com/trflorian/ball-tracking-live-plot/actions/workflows/ci.yaml)
 
 
-In this project I showcase how you can create an animated plot with OpenCV and Matplotlib. To demonstrate the real-time animated plotting, I am tracking a ball that is thrown vertically into the air. The ball's vertical position, velocity and acceleration are plotted in the figure. Polynomial functions are used to fit a model to the motion of the ball and predict its trajectory.
+In this project I showcase how you can create an animated plot with OpenCV and Matplotlib. To demonstrate the real-time animated plotting, I am tracking a ball that is thrown vertically into the air using either a **live webcam feed** or a pre-recorded video file. The ball's vertical position, velocity and acceleration are plotted in the figure. Polynomial functions are used to fit a model to the motion of the ball and predict its trajectory.
 
 ![Screencastfrom01 01 2025220355-ezgif com-video-to-gif-converter](https://github.com/user-attachments/assets/71c5818b-cac9-44b4-99dd-9a10355433ea)
 
@@ -13,14 +13,26 @@ In this project I showcase how you can create an animated plot with OpenCV and M
 
 This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) for setup. Simply run the `tracking.py` or `trajectory.py` script with uv to get started!
 
-### Streaming Track Demo
+### Streaming Track Demo (Webcam)
 ```Shell
 uv run tracking
 ```
+
+### Streaming Track Demo (Video File)
+```Shell
+uv run tracking --no-webcam
+```
+
 ### Trajectory Tracking
 ```Shell
 uv run trajectory
 ```
+
+### Additional Options
+- Use a different camera: `uv run tracking --camera-index 1`
+- Show detection masks: `uv run tracking --show-masks`
+- Save tracked video: `uv run tracking --save-video`
+- Custom video file: `uv run tracking --no-webcam --video-path path/to/video.mp4`
 
 ## 📈 Matplotlib + OpenCV
 

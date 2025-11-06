@@ -15,16 +15,18 @@ class VideoLoop:
     frame_time: float
     video_resolution: tuple[int, int]
     last_frame_time: float
+    is_webcam: bool
 
     def __init__(
         self,
-        video_path: str | Path,
+        video_source: str | Path | int,
         loop: bool = False,
         skip_seconds: float = 0.0,
     ) -> None:
-        self.video_path = video_path
-        self.loop = loop
-        self.skip_seconds = skip_seconds
+        self.video_source = video_source
+        self.is_webcam = isinstance(video_source, int)
+        self.loop = loop and not self.is_webcam  # Webcam can't loop
+        self.skip_seconds = skip_seconds if not self.is_webcam else 0.0  # Webcam can't skip
 
     def __iter__(self) -> "VideoLoop":
         return self
@@ -40,12 +42,16 @@ class VideoLoop:
         """
         ret, frame = self.cap.read()
         if not ret:
-            if self.loop:
+            if self.loop and not self.is_webcam:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 return self.__next__()
             else:
                 self.cap.release()
                 raise StopIteration
+
+        # For webcam, we don't need to control timing as strictly
+        if self.is_webcam:
+            return 1, frame  # Minimal wait time for webcam
 
         # calculate the time elapsed since the last frame
         current_frame_time = time.time()
@@ -60,14 +66,27 @@ class VideoLoop:
         self.cap.release()
 
     def __enter__(self) -> "VideoLoop":
-        self.cap = cv2.VideoCapture(str(self.video_path))
+        if self.is_webcam:
+            self.cap = cv2.VideoCapture(self.video_source)
+        else:
+            self.cap = cv2.VideoCapture(str(self.video_source))
 
         if not self.cap.isOpened():
-            raise FileNotFoundError(f"Error: cannot read video file {self.video_path}")
+            if self.is_webcam:
+                raise RuntimeError(f"Error: cannot open webcam {self.video_source}")
+            else:
+                raise FileNotFoundError(f"Error: cannot read video file {self.video_source}")
 
         # get video properties
         self.fps = int(self.cap.get(cv2.CAP_PROP_FPS))
-        self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if self.is_webcam:
+            # For webcam, we might not get a valid FPS, so set a default
+            if self.fps <= 0:
+                self.fps = 30  # Default to 30 FPS for webcam
+            self.frame_count = -1  # Webcam has infinite frames
+        else:
+            self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -76,7 +95,7 @@ class VideoLoop:
         self.last_frame_time = time.time()
         self.video_resolution = (self.width, self.height)
 
-        if self.skip_seconds > self.frame_count / self.fps:
+        if not self.is_webcam and self.skip_seconds > self.frame_count / self.fps:
             raise ValueError(
                 f"Error: skip_seconds ({self.skip_seconds:.2f}s) is greater than the video duration ({self.frame_count / self.fps:.2f}s)"
             )
@@ -94,5 +113,6 @@ class VideoLoop:
         self.cap.release()
 
     def reset(self) -> None:
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, int(self.fps * self.skip_seconds))
+        if not self.is_webcam:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, int(self.fps * self.skip_seconds))
         self.last_frame_time = time.time()

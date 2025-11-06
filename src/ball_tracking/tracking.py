@@ -18,7 +18,24 @@ def parse_args() -> argparse.Namespace:
         "--video-path",
         type=Path,
         default=Path("media/ball3.mp4"),
-        help="Path to the video file",
+        help="Path to the video file (ignored if --webcam is used)",
+    )
+    parser.add_argument(
+        "--webcam",
+        action="store_true",
+        default=True,
+        help="Use webcam instead of video file (default: True)",
+    )
+    parser.add_argument(
+        "--no-webcam",
+        action="store_true",
+        help="Use video file instead of webcam",
+    )
+    parser.add_argument(
+        "--camera-index",
+        type=int,
+        default=0,
+        help="Camera index for webcam (default: 0)",
     )
     parser.add_argument(
         "--alpha-blending",
@@ -36,12 +53,12 @@ def parse_args() -> argparse.Namespace:
         "--skip-seconds",
         type=float,
         default=4.5,
-        help="Number of seconds to skip in the video",
+        help="Number of seconds to skip in the video (ignored for webcam)",
     )
     parser.add_argument(
         "--loop",
         action="store_true",
-        help="Loop the video",
+        help="Loop the video (ignored for webcam)",
     )
     parser.add_argument(
         "--show-masks",
@@ -62,24 +79,37 @@ def main() -> None:
 
     args = parse_args()
 
-    video_path = args.video_path
+    # Handle webcam vs video file logic
+    use_webcam = args.webcam and not args.no_webcam
+
+    # Determine video source: webcam or video file
+    if use_webcam:
+        video_source = args.camera_index
+        logger.info(f"Using webcam with camera index: {video_source}")
+    else:
+        video_source = args.video_path
+        logger.info(f"Using video file: {video_source}")
 
     with VideoLoop(
-        video_path,
+        video_source,
         loop=args.loop,
         skip_seconds=args.skip_seconds,
     ) as video_loop:
-        logger.info(f"Loaded video: {video_path}, resolution: {video_loop.video_resolution}, fps: {video_loop.fps}")
+        logger.info(f"Loaded video source, resolution: {video_loop.video_resolution}, fps: {video_loop.fps}")
 
+        video_writer = None
         if args.save_video:
+            if use_webcam:
+                output_filename = "webcam_tracked.mp4"
+            else:
+                output_filename = str(args.video_path.with_name(args.video_path.stem + "_tracked.mp4"))
+            
             video_writer = cv2.VideoWriter(
-                filename=str(video_path.with_name(video_path.stem + "_tracked.mp4")),
+                filename=output_filename,
                 fourcc=cv2.VideoWriter.fourcc(*"mp4v"),
                 fps=video_loop.fps,
                 frameSize=video_loop.video_resolution,
             )
-        else:
-            video_writer = None
 
         # initialize background model
         bg_sub = cv2.createBackgroundSubtractorMOG2(varThreshold=128, detectShadows=False)
@@ -93,9 +123,10 @@ def main() -> None:
         for wait_time, frame in video_loop:
             frame_annotated = frame.copy()
 
-            # filter based on color
+            # filter based on color - targeting yellow and light brown objects
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            mask_color = cv2.inRange(hsv, np.array([30, 30, 30]), np.array([100, 150, 150]))
+            # HSV range for yellow and light brown: Hue 10-35, Saturation 50-255, Value 100-255
+            mask_color = cv2.inRange(hsv, np.array([10, 50, 100]), np.array([35, 255, 255]))
             mask_color = cv2.morphologyEx(
                 mask_color,
                 cv2.MORPH_OPEN,
@@ -173,7 +204,7 @@ def main() -> None:
             key = cv2.waitKey(wait_time) & 0xFF
             if key == ord("q"):
                 break
-            if key == ord("r"):
+            if key == ord("r") and not use_webcam:
                 video_loop.reset()
 
         if video_writer is not None:
