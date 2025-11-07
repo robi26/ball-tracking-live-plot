@@ -1,5 +1,6 @@
 import argparse
 import logging
+import time
 from collections import deque
 from itertools import pairwise
 from pathlib import Path
@@ -9,6 +10,7 @@ import numpy as np
 
 from ball_tracking.colormap import colormap_rainbow
 from ball_tracking.core import Point2D
+from ball_tracking.osc_client import OSCClient
 from ball_tracking.video_loop import VideoLoop
 
 
@@ -70,6 +72,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Save the video with the tracked ball",
     )
+    parser.add_argument(
+        "--osc-host",
+        type=str,
+        default="127.0.0.1",
+        help="OSC server host (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--osc-port",
+        type=int,
+        default=9999,
+        help="OSC server port (default: 9999)",
+    )
+    parser.add_argument(
+        "--disable-osc",
+        action="store_true",
+        help="Disable OSC communication",
+    )
     return parser.parse_args()
 
 
@@ -97,6 +116,13 @@ def main() -> None:
     ) as video_loop:
         logger.info(f"Loaded video source, resolution: {video_loop.video_resolution}, fps: {video_loop.fps}")
 
+        # Initialize OSC client
+        osc_client = OSCClient(
+            host=args.osc_host,
+            port=args.osc_port,
+            enabled=not args.disable_osc
+        )
+
         video_writer = None
         if args.save_video:
             if use_webcam:
@@ -120,13 +146,26 @@ def main() -> None:
         _, frame0 = next(video_loop)
         bg_sub.apply(frame0, learningRate=1.0)
 
-        for wait_time, frame in video_loop:
-            frame_annotated = frame.copy()
+        frame_count = 0
+        start_time = time.time()
+        last_fps_update = start_time
 
-            # filter based on color - targeting yellow and light brown objects
+        for wait_time, frame in video_loop:
+            frame_count += 1
+            frame_annotated = frame.copy()
+            current_time = time.time()
+
+            # Calculate and send FPS periodically
+            if current_time - last_fps_update >= 1.0:  # Update every second
+                elapsed = current_time - start_time
+                current_fps = frame_count / elapsed if elapsed > 0 else 0
+                osc_client.send_tracking_info(current_fps, frame_count)
+                last_fps_update = current_time
+
+            # filter based on color - targeting white and light grey objects
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            # HSV range for yellow and light brown: Hue 10-35, Saturation 50-255, Value 100-255
-            mask_color = cv2.inRange(hsv, np.array([10, 50, 100]), np.array([35, 255, 255]))
+            # HSV range for white/light grey: Low saturation (0-30), High value (200-255)
+            mask_color = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 30, 255]))
             mask_color = cv2.morphologyEx(
                 mask_color,
                 cv2.MORPH_OPEN,
@@ -150,6 +189,8 @@ def main() -> None:
 
             # find largest contour corresponding to the ball we want to track
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            ball_detected = False
+            
             if len(contours) > 0:
                 largest_contour = max(contours, key=cv2.contourArea)
                 x, y, w, h = cv2.boundingRect(largest_contour)
@@ -165,9 +206,18 @@ def main() -> None:
                     )
 
                 tracked_pos.append(center)
+                ball_detected = True
+
+                # Send ball position via OSC
+                frame_height, frame_width = frame.shape[:2]
+                osc_client.send_ball_position(center, frame_width, frame_height)
 
                 cv2.circle(frame_annotated, center, 30, (255, 0, 0), 2)
                 cv2.circle(frame_annotated, center, 2, (255, 0, 0), 2)
+            
+            # Send ball lost signal if no ball detected
+            if not ball_detected:
+                osc_client.send_ball_lost()
 
             # draw trajectory
             traj_len = len(tracked_pos)
