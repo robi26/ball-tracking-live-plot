@@ -152,46 +152,49 @@ def main() -> None:
 
         for wait_time, frame in video_loop:
             frame_count += 1
-            frame_annotated = frame.copy()
             current_time = time.time()
 
             # Calculate and send FPS periodically
             if current_time - last_fps_update >= 1.0:  # Update every second
                 elapsed = current_time - start_time
                 current_fps = frame_count / elapsed if elapsed > 0 else 0
-                osc_client.send_tracking_info(current_fps, frame_count)
+                # osc_client.send_tracking_info(current_fps, frame_count)
                 last_fps_update = current_time
 
             # filter based on color - targeting white and light grey objects
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             # HSV range for white/light grey: Low saturation (0-30), High value (200-255)
             mask_color = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 30, 255]))
+            # Use smaller kernel for faster processing
             mask_color = cv2.morphologyEx(
                 mask_color,
                 cv2.MORPH_OPEN,
-                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)),
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)),
             )
 
             # filter based on motion
             mask_fg = bg_sub.apply(frame, learningRate=0)
+            # Use smaller kernel for faster processing
             mask_fg = cv2.dilate(
                 mask_fg,
-                kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+                kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
             )
 
             # combine both masks
             mask = cv2.bitwise_and(mask_color, mask_fg)
+            # Use smaller kernel for faster processing
             mask = cv2.morphologyEx(
                 mask,
                 op=cv2.MORPH_OPEN,
-                kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+                kernel=cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
             )
 
             # find largest contour corresponding to the ball we want to track
+            # Use CHAIN_APPROX_SIMPLE for better performance
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             ball_detected = False
             
-            if len(contours) > 0:
+            if contours:
                 largest_contour = max(contours, key=cv2.contourArea)
                 x, y, w, h = cv2.boundingRect(largest_contour)
                 center = (x + w // 2, y + h // 2)
@@ -211,13 +214,19 @@ def main() -> None:
                 # Send ball position via OSC
                 frame_height, frame_width = frame.shape[:2]
                 osc_client.send_ball_position(center, frame_width, frame_height)
-
-                cv2.circle(frame_annotated, center, 30, (255, 0, 0), 2)
-                cv2.circle(frame_annotated, center, 2, (255, 0, 0), 2)
             
             # Send ball lost signal if no ball detected
             if not ball_detected:
                 osc_client.send_ball_lost()
+
+            # Only create annotated frame if we need to display or save it
+            frame_annotated = frame.copy()
+            
+            # Draw ball marker if detected
+            if ball_detected and len(tracked_pos) > 0:
+                center = tracked_pos[-1]
+                cv2.circle(frame_annotated, center, 30, (255, 0, 0), 2)
+                cv2.circle(frame_annotated, center, 2, (255, 0, 0), 2)
 
             # draw trajectory
             traj_len = len(tracked_pos)

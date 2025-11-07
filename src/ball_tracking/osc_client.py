@@ -53,15 +53,15 @@ class OSCClient:
         
         try:
             # Send raw pixel coordinates
-            self.client.send_message("/ball/position/raw", [x, y])
+            # self.client.send_message("/ball/position/raw", [x, y])
             
             # Send normalized coordinates (0-1 range)
             self.client.send_message("/ball/position/normalized", [norm_x, norm_y])
             
             # Send centered coordinates (-1 to 1 range, useful for UE)
-            centered_x = (x - frame_width / 2) / (frame_width / 2)
-            centered_y = (y - frame_height / 2) / (frame_height / 2)
-            self.client.send_message("/ball/position/centered", [centered_x, centered_y])
+            # centered_x = (x - frame_width / 2) / (frame_width / 2)
+            # centered_y = (y - frame_height / 2) / (frame_height / 2)
+            # self.client.send_message("/ball/position/centered", [centered_x, centered_y])
             
           #  self.logger.info(f"OSC: Sent ball position raw=({x}, {y}), normalized=({norm_x:.3f}, {norm_y:.3f})")
             
@@ -75,7 +75,7 @@ class OSCClient:
         
         try:
             self.client.send_message("/ball/lost", [True])
-            self.logger.info("OSC: Sent ball lost signal")
+            #self.logger.info("OSC: Sent ball lost signal")
         except Exception as e:
             self.logger.error(f"Failed to send ball lost message: {e}")
     
